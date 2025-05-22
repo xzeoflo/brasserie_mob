@@ -5,7 +5,9 @@ import 'package:brasserie_mob/components/product_card.dart';
 import 'package:brasserie_mob/services/supabase_service.dart';
 import 'package:brasserie_mob/pages/product_detail_page.dart';
 import 'package:brasserie_mob/components/header.dart';
-import 'package:brasserie_mob/services/cart_service.dart';  // Import CartService
+import 'package:brasserie_mob/services/cart_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:brasserie_mob/services/auth_service.dart';
 
 class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
@@ -19,12 +21,41 @@ class _ProductsPageState extends State<ProductsPage> {
   List categories = [];
   String searchQuery = '';
   int? selectedCategoryId;
+  String? userName;
 
   @override
   void initState() {
     super.initState();
     _loadCategories();
     _loadFilteredProducts();
+    _loadUserName();
+
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.session?.user != null) {
+        _loadUserName();
+      } else {
+        setState(() {
+          userName = null;
+        });
+      }
+    });
+  }
+
+  Future<void> _loadUserName() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final response = await Supabase.instance.client
+        .from('users')
+        .select('first_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    if (mounted) {
+      setState(() {
+        userName = response?['first_name'] ?? user.email;
+      });
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -46,6 +77,18 @@ class _ProductsPageState extends State<ProductsPage> {
     });
   }
 
+  void _onLogout() async {
+    await AuthService().signOut();
+    if (mounted) {
+      setState(() {
+        userName = null;
+      });
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Déconnecté avec succès')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -53,7 +96,11 @@ class _ProductsPageState extends State<ProductsPage> {
       body: SafeArea(
         child: Column(
           children: [
-            Header(title: 'Produits'),
+            Header(
+              title: 'Produits',
+              userName: userName,
+              onLogout: _onLogout,
+            ),
             SearchBarComponent(
               searchText: searchQuery,
               onChanged: (value) {

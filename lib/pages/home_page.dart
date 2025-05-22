@@ -29,12 +29,14 @@ class _HomePageState extends State<HomePage> {
     _loadLatestProducts();
     _loadUserName();
 
-    // Ecoute les changements d’auth pour mettre à jour userName en live
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      final session = data.session;
-      setState(() {
-        userName = session?.user.email;
-      });
+      if (data.session?.user != null) {
+        _loadUserName();
+      } else {
+        setState(() {
+          userName = null;
+        });
+      }
     });
   }
 
@@ -49,9 +51,27 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadUserName() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (mounted) {
+    if (user == null) {
       setState(() {
-        userName = user?.email;
+        userName = null;
+      });
+      return;
+    }
+
+    final response = await Supabase.instance.client
+        .from('users')
+        .select('first_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    if (mounted) {
+      final firstName = response?['first_name'] as String?;
+      setState(() {
+        if (firstName != null && firstName.trim().isNotEmpty) {
+          userName = firstName;
+        } else {
+          userName = user.email;
+        }
       });
     }
   }
@@ -61,7 +81,7 @@ class _HomePageState extends State<HomePage> {
     if (mounted) {
       setState(() {
         userName = null;
-        _selectedIndex = 0; // Optionnel : revenir à l’accueil
+        _selectedIndex = 0;
       });
     }
     ScaffoldMessenger.of(context).showSnackBar(

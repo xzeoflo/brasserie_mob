@@ -3,6 +3,7 @@ import 'package:brasserie_mob/pages/product_detail_page.dart';
 import 'package:brasserie_mob/services/cart_service.dart';
 import 'package:brasserie_mob/components/header.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:brasserie_mob/services/auth_service.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -15,16 +16,76 @@ class _CartPageState extends State<CartPage> {
   final CartService _cartService = CartService();
   final SupabaseClient _client = Supabase.instance.client;
 
+  String? userName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserName();
+
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.session?.user != null) {
+        _loadUserName();
+      } else {
+        setState(() {
+          userName = null;
+        });
+      }
+    });
+  }
+
+  Future<void> _loadUserName() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    final response = await _client
+        .from('users')
+        .select('first_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    if (mounted) {
+      setState(() {
+        userName = response?['first_name'] ?? user.email;
+      });
+    }
+  }
+
+  void _onLogout() async {
+    await AuthService().signOut();
+    if (mounted) {
+      setState(() {
+        userName = null;
+      });
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Déconnecté avec succès')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cartItems = _cartService.items;
+
+    int totalQuantity = cartItems.fold(
+        0, (sum, item) => sum + (item['quantity'] as int? ?? 1));
+
+    double totalPrice = cartItems.fold(0.0, (sum, item) {
+      final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+      final qty = item['quantity'] as int? ?? 1;
+      return sum + price * qty;
+    });
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5DC),
       body: SafeArea(
         child: Column(
           children: [
-            const Header(title: 'Mon Panier'),
+            Header(
+              title: 'Mon Panier',
+              userName: userName,
+              onLogout: _onLogout,
+            ),
             Expanded(
               child: cartItems.isEmpty
                   ? const Center(child: Text("Votre panier est vide."))
@@ -74,7 +135,6 @@ class _CartPageState extends State<CartPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          // Contrôle de quantité
                                           Row(
                                             children: [
                                               IconButton(
@@ -169,43 +229,57 @@ class _CartPageState extends State<CartPage> {
             ),
             if (cartItems.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.all(16),
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final userId = _client.auth.currentUser?.id;
-
-                    if (userId == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Vous devez être connecté.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final messenger = ScaffoldMessenger.of(context);
-
-                    await _cartService.checkout(userId);
-
-                    if (!mounted) return;
-
-                    setState(() {}); // Rafraîchir la liste
-
-                    messenger.showSnackBar(
-                      const SnackBar(
-                        content: Text('Commande validée !'),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Total : $totalQuantity produits - ${totalPrice.toStringAsFixed(2)} €',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-                  ),
-                  child: const Text(
-                    'Valider la commande',
-                    style: TextStyle(fontSize: 18),
-                  ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final userId = _client.auth.currentUser?.id;
+
+                        if (userId == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Vous devez être connecté.'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final messenger = ScaffoldMessenger.of(context);
+
+                        await _cartService.checkout(userId);
+
+                        if (!mounted) return;
+
+                        setState(() {}); // Refresh cart
+
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Commande validée !'),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 24),
+                      ),
+                      child: const Text(
+                        'Valider la commande',
+                        style: TextStyle(fontSize: 18),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],

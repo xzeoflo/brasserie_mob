@@ -1,3 +1,4 @@
+import 'package:brasserie_mob/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
@@ -39,7 +40,10 @@ class RegisterPageState extends State<RegisterPage> {
       });
     } else {
       debugPrint('Inscription réussie!');
-      Navigator.pushReplacementNamed(context, '/login');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
     }
   }
 

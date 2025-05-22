@@ -3,6 +3,7 @@ import 'package:brasserie_mob/services/supabase_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:brasserie_mob/pages/order_detail_page.dart';
 import 'package:brasserie_mob/components/header.dart';
+import 'package:brasserie_mob/services/auth_service.dart';
 
 class OrdersPage extends StatefulWidget {
   const OrdersPage({super.key});
@@ -15,25 +16,56 @@ class _OrdersPageState extends State<OrdersPage> {
   List orders = [];
   bool isLoading = true;
   bool isConnected = false;
+  String? userName;
 
   @override
   void initState() {
     super.initState();
-    _checkConnectionAndLoad();
+    _initUserAndOrders();
+
+    // Écoute les changements d'authentification pour rafraîchir l'affichage
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.session?.user != null) {
+        _initUserAndOrders();
+      } else {
+        setState(() {
+          isConnected = false;
+          userName = null;
+          orders = [];
+        });
+      }
+    });
   }
 
-  Future<void> _checkConnectionAndLoad() async {
+  Future<void> _initUserAndOrders() async {
     final user = Supabase.instance.client.auth.currentUser;
     setState(() {
       isConnected = user != null;
     });
 
-    if (isConnected) {
-      await _loadOrders();
-    } else {
+    if (!isConnected) {
       setState(() {
         isLoading = false;
         orders = [];
+        userName = null;
+      });
+      return;
+    }
+
+    await _loadUserName(user!);
+    await _loadOrders();
+  }
+
+  Future<void> _loadUserName(User user) async {
+    final response = await Supabase.instance.client
+        .from('users')
+        .select('first_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    if (mounted) {
+      setState(() {
+        userName = response?['first_name'] ?? user.email;
       });
     }
   }
@@ -44,6 +76,7 @@ class _OrdersPageState extends State<OrdersPage> {
     });
 
     final fetchedOrders = await SupabaseService.getUserOrders();
+
     setState(() {
       orders = fetchedOrders;
       isLoading = false;
@@ -64,6 +97,20 @@ class _OrdersPageState extends State<OrdersPage> {
     }
   }
 
+  void _onLogout() async {
+    await AuthService().signOut();
+    if (mounted) {
+      setState(() {
+        isConnected = false;
+        userName = null;
+        orders = [];
+      });
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Déconnecté avec succès')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -71,7 +118,11 @@ class _OrdersPageState extends State<OrdersPage> {
       body: SafeArea(
         child: Column(
           children: [
-            const Header(title: 'Mes Commandes'),
+            Header(
+              title: 'Mes Commandes',
+              userName: userName,
+              onLogout: _onLogout,
+            ),
             Expanded(
               child: isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -90,7 +141,7 @@ class _OrdersPageState extends State<OrdersPage> {
                               itemBuilder: (context, index) {
                                 final order = orders[index];
                                 return Card(
-                                  color: const Color(0xFFD2B48C), // style produit
+                                  color: const Color(0xFFD2B48C),
                                   margin: const EdgeInsets.symmetric(vertical: 8),
                                   elevation: 3,
                                   child: Padding(
